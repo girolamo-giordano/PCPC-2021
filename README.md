@@ -117,7 +117,7 @@ Gli array **displs** e **send_counts** servono per utilizzare la funzione **MPI_
 MPI_Scatterv(array_completo, send_counts, displs, MPI_INT,&sarray.array_op[0][0], send_counts[world_rank], MPI_INT, 0, MPI_COMM_WORLD);
 ```
 Successivamente viene utilizzata la funzione **def_array_border** che permette ad ogni processo di avere le righe confinanti della propria porzione di matrice, in modo da poter calcolare se un elemento è soddisfatto o meno:
-```c:
+```c
 void def_array_border(int world_rank,int world_size)
 {
     if(world_size > 1)
@@ -142,7 +142,7 @@ void def_array_border(int world_rank,int world_size)
 }
 ```
  Una volta che ogni processo ha ottenuto la propria porzione della matrice, potrà operare su di essa fino ad un massimo di **ITERATIONS**, viene utilizzata la funzione **find_places** per controllare ogni elemento all'interno della matrice: ogni elemento viene controllato tramite la funzione **check** che restituirà **1** se l'elemento risulta non soddisfatto, **0** altrimenti:
- ```c:
+ ```c
 int check(int array_border[],int size)
 {   
     int count=0;
@@ -182,7 +182,7 @@ Con la funzione **swap** avviene lo spostamento dell'elemento non soddisfatto, q
 1. Viene selezionata una casella appartenente alla porzione della matrice del processo
 2. Viene selezionata una casella appartenente alla porzione della matrice di un altro processo
 
-```c:
+```c
 void swap(int i,int j,int world_rank,int rows)
 {
     stop=1;
