@@ -3,13 +3,14 @@
 #include <stdlib.h>
 #include <time.h>
 
-#define SIZE 20 //Indica il numero di righe e colonne che la matrice avrà
+#define SIZE 100  //Indica il numero di righe e colonne che la matrice avrà
 #define TOLLERANCE 51 //Indica la tolleranza che devono avere gli elementi della matrice
 #define PERC_O 50 //Viene indicata la percentuale di elementi 'O' all'interno della matrice
 #define PERC_X 100-PERC_O //Viene indicata la percentuale di elementi 'X' all'interno della matrice
 #define WHITE_SPACES 30 //Viene indicata la percentuale di caselle vuote all'interno della matrice
-#define ITERATIONS 1000000 //Viene indicato il numero massimo di iterazioni che l'algoritmo esegue
+#define ITERATIONS 100 //Viene indicato il numero massimo di iterazioni che l'algoritmo esegue
 #define RANDOM_MATRIX 1 //Con 0 viene generata una matrice costante, con 1 una matrice casuale
+#define PRINT_MATRIX 0 //Con 1 viene stampata la matrice iniziale e finale, con 0 la stampa viene omessa
 
 typedef struct 
 {
@@ -55,11 +56,11 @@ int array_completo[SIZE][SIZE];
 
 
 int check(int array_border[],int size); //Controlla se l'elemento rispetta i parametri di tolleranza all'interno della matrice
-void swap(int i,int j,int world_rank,int rows); //Effettua lo swap dell'elemento all'interno della matrice
+void swap(int i,int j,int world_rank,int rows,int num_it); //Effettua lo swap dell'elemento all'interno della matrice
 void print_matrix_complete(); //Viene stampata la matrice completa
 void print_matrix_op(); //Viene stampata la matrice appartenente al singolo processo
 void def_array_border(int world_rank,int world_size); //Permette lo scambio di righe di bordo tra i vari processi
-void find_places(int world_rank, int world_size); //Utilizzata per iterare gli elementi all'interno della matrice, controllando se ogni elemento è soddisfatto
+void find_places(int world_rank, int world_size,int num_it); //Utilizzata per iterare gli elementi all'interno della matrice, controllando se ogni elemento è soddisfatto
 
 int main(int argc, char** argv) {
     MPI_Init(NULL, NULL);
@@ -121,7 +122,6 @@ int main(int argc, char** argv) {
     //Il rank 0 provvede a riempire in modo randomico la matrice con i parametri associati agli elementi
     if(world_rank == 0)
     {
-        printf("numb white spaces:%d numb_o:%d, numb_x:%d\n",numb_white_spaces,numb_o,numb_x);
             int counter_for_empty=0;
             if(RANDOM_MATRIX == 0)
             {
@@ -221,8 +221,8 @@ int main(int argc, char** argv) {
                 }
             }
             
-       
-        //print_matrix_complete();
+        if(PRINT_MATRIX)
+            print_matrix_complete();
 
 
         int modulo=SIZE%world_size;
@@ -342,8 +342,15 @@ int main(int argc, char** argv) {
         sarray.array_op[i] = (ptr + col * i);
 
 
-    MPI_Scatterv(array_completo, send_counts, displs, MPI_INT,&sarray.array_op[0][0], send_counts[world_rank], MPI_INT, 0, MPI_COMM_WORLD);
-    
+    if(world_size == 1)
+    {
+        for(int i=0;i<rows;i++)
+            for(int j=0;j<SIZE;j++)
+                sarray.array_op[i][j]=array_completo[i][j];
+    }
+    else
+        MPI_Scatterv(array_completo, send_counts, displs, MPI_INT,&sarray.array_op[0][0], send_counts[world_rank], MPI_INT, 0, MPI_COMM_WORLD);
+
     
     def_array_border(world_rank,world_size);
 
@@ -352,7 +359,7 @@ int main(int argc, char** argv) {
    int stop_iterations[world_size];
    int round_check=0;
    
-    for(int i=0;i<ITERATIONS;i++){
+    for(int a=0;a<ITERATIONS;a++){
         if(world_size > 1)
             MPI_Allgather(&stop,1,MPI_INT,stop_iterations,1,MPI_INT,MPI_COMM_WORLD);
         else
@@ -365,13 +372,12 @@ int main(int argc, char** argv) {
         if(count_stop==world_size)
             break;
 
-
     count_stop=0;
     count_iterations++;
     round_check++;
     stop=0;
 
-    find_places(world_rank,world_size);
+    find_places(world_rank,world_size,a);
 
     if(world_size > 1)
     {
@@ -390,7 +396,7 @@ int main(int argc, char** argv) {
         }
 
 
-        Element all_elements[size_all_elements];
+        Element *all_elements=malloc(sizeof(Element)*size_all_elements);
 
         MPI_Allgatherv(elements, size_elements, elementswap, all_elements, counts_swap, displacements_swap, elementswap, MPI_COMM_WORLD);
         
@@ -437,7 +443,7 @@ int main(int argc, char** argv) {
             displacements_swap_changed[i] = (i==0) ? 0 : displacements_swap_changed[i-1]+size_all_elements_changed_array[i-1];
         }
 
-        Element all_elements_changed[size_all_elements_changed];
+        Element* all_elements_changed=malloc(sizeof(Element)*size_all_elements_changed);
 
         if(size_all_elements_changed>0)
             MPI_Allgatherv(elements_changed, size_elements_changed, elementswap, all_elements_changed, counts_swap_changed, displacements_swap_changed, elementswap, MPI_COMM_WORLD);
@@ -479,6 +485,8 @@ int main(int argc, char** argv) {
 
         
         free(elements_changed);
+        free(all_elements);
+        free(all_elements_changed);
         elements=realloc(elements,0);
         size_elements=0;
         size_elements_changed=0;
@@ -501,17 +509,25 @@ int main(int argc, char** argv) {
     
     
     
-    
+    MPI_Barrier(MPI_COMM_WORLD);
     end = MPI_Wtime();
     
     if(world_rank == 0)
     {
         if(count_iterations == ITERATIONS)
-        printf("sono il processo:%d e non sono riuscito a risolvere la matrice, tempo impiegato:%f\n",world_rank,end-start);
+        printf("sono il processo master e non sono riuscito a risolvere la matrice, tempo impiegato:%f\n",end-start);
             
         else
-            printf("sono il processo:%d ho risolto la matrice ed il tempo impiegato è stato di:%f con un totale di %d iterazioni\n",world_rank,end-start,count_iterations);
-        print_matrix_complete();
+            printf("sono il processo master ed ho risolto la matrice ed il tempo impiegato è stato di:%f con un totale di %d iterazioni\n",end-start,count_iterations);
+        
+        if(PRINT_MATRIX)
+        {   
+            if(world_size== 1)
+                print_matrix_op();
+            else
+                print_matrix_complete();
+        }
+        
     }
    
     MPI_Type_free(&elementswap);
@@ -557,11 +573,11 @@ int check(int array_border[],int size)
 }
 
 
-void swap(int i,int j,int world_rank,int rows)
+void swap(int i,int j,int world_rank,int rows,int num_it)
 {
     stop=1;
-    srand(time(NULL) + world_rank+i+j + world_rank*i*j);
-    int r=rand()%numb_white_spaces;
+    srand(time(NULL) + num_it + i + j);
+    int r=(rand()+num_it*i+j)%numb_white_spaces;
     int check=0;
    
     int coord_empty_x=sarray.array_empty_coord[r].x;
@@ -575,20 +591,19 @@ void swap(int i,int j,int world_rank,int rows)
         {
             check=1;
             local_i=i;
+            
         }
             
     }
-   
+  
     if(check==1)
     {
-        {
             sarray.array_empty_coord[r].x=i+sarray.initial_row;
             sarray.array_empty_coord[r].y=j;
             sarray.array_local_empty_coord[local_i].x=i+sarray.initial_row;
             sarray.array_local_empty_coord[local_i].y=j;
             sarray.array_op[coord_empty_x-sarray.initial_row][coord_empty_y]=sarray.array_op[i][j];
-            sarray.array_op[i][j]=32;
-        }     
+            sarray.array_op[i][j]=32;    
     }
     else
     {
@@ -631,26 +646,21 @@ void print_matrix_complete()
         printf("\033[0m");
 }
 
-// void print_matrix_op()
-// {
-//     for(int i =0;i< sarray.rows_op;i++)
-//     {
-//         for(int j=0;j< SIZE;j++)
-//         {
-//             printf("%c ",sarray.array_op[i][j]);
-//         }
-//         printf("\n");
-//     }
-// }
-
-// void print_empty()
-// {
-//     for(int i=0;i<numb_white_spaces;i++)
-//     {
-//         printf("%d%d ",sarray.array_empty_coord[i].x,sarray.array_empty_coord[i].y);
-//     }
-
-// }
+void print_matrix_op()
+{
+    for(int i =0;i< sarray.rows_op;i++)
+    {
+        for(int j=0;j< SIZE;j++)
+        {
+            if(sarray.array_op[i][j]=='X')
+                    printf("\033[1;33m%c ",sarray.array_op[i][j]);
+                else
+                    printf("\033[1;31m%c ", sarray.array_op[i][j]);
+        }
+        printf("\n");
+        printf("\033[0m");
+    }
+}
 
 void print_local_empty()
 {
@@ -683,7 +693,7 @@ void def_array_border(int world_rank,int world_size)
     }    
 }
 
-void find_places(int world_rank, int world_size)
+void find_places(int world_rank, int world_size,int num_it)
 {
     for(int i=0;i<sarray.rows_op;i++)
             {
@@ -946,7 +956,7 @@ void find_places(int world_rank, int world_size)
                     if(check(array_border_pointer,size_array_border))
                     {
                         
-                        swap(i,j,world_rank,sarray.rows_op);
+                        swap(i,j,world_rank,sarray.rows_op,num_it);
                     }
                 }
             
