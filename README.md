@@ -11,13 +11,14 @@ La soluzione è basata sulla seguente implementazione: inizialmente viene genera
 Inizialmente ci sono alcuni parametri modificabili prima di effettuare la compilazione, che permettono di andare a definire la struttura della matrice. 
 
 ```c
-#define SIZE 20 //Indica il numero di righe e colonne che la matrice avrà
-#define TOLLERANCE 51 //Indica la tolleranza che devono avere gli elementi della matrice
-#define PERC_O 50 //Viene indicata la percentuale di elementi 'O' all'interno della matrice
-#define PERC_X 100-PERC_O //Viene indicata la percentuale di elementi 'X' all'interno della matrice
-#define WHITE_SPACES 30 //Viene indicata la percentuale di caselle vuote all'interno della matrice
-#define ITERATIONS 1000000 //Viene indicato il numero massimo di iterazioni che l'algoritmo esegue
-#define RANDOM_MATRIX 1 //Con 0 viene generata una matrice costante, con 1 una matrice casuale
+#define SIZE 100            //Indica il numero di righe e colonne che la matrice avrà
+#define TOLLERANCE 51       //Indica la tolleranza che devono avere gli elementi della matrice
+#define PERC_O 50           //Viene indicata la percentuale di elementi 'O' all'interno della matrice
+#define PERC_X 100-PERC_O   //Viene indicata la percentuale di elementi 'X' all'interno della matrice
+#define WHITE_SPACES 30     //Viene indicata la percentuale di caselle vuote all'interno della matrice
+#define ITERATIONS 100      //Viene indicato il numero massimo di iterazioni che l'algoritmo esegue
+#define RANDOM_MATRIX 1     //Con 0 viene generata una matrice costante, con 1 una matrice casuale
+#define PRINT_MATRIX 0      //Con 1 viene stampata la matrice iniziale e finale, con 0 la stampa viene omessa
 ```
 All'interno dell'implementazione abbiamo la definizione di diverse struct:
 - Coord: La struttura Coord viene utilizzata per salvare la posizione dei vari elementi
@@ -56,11 +57,11 @@ typedef struct
 Sono state definite anche le seguenti funzioni:
 ```c
 int check(int array_border[],int size); //Controlla se l'elemento rispetta i parametri di tolleranza all'interno della matrice
-void swap(int i,int j,int world_rank,int rows); //Effettua lo swap dell'elemento all'interno della matrice
+void swap(int i,int j,int world_rank,int rows,int num_it); //Effettua lo swap dell'elemento all'interno della matrice
 void print_matrix_complete(); //Viene stampata la matrice completa
 void print_matrix_op(); //Viene stampata la matrice appartenente al singolo processo
 void def_array_border(int world_rank,int world_size); //Permette lo scambio di righe di bordo tra i vari processi
-void find_places(int world_rank, int world_size); //Utilizzata per iterare gli elementi all'interno della matrice, controllando se ogni elemento è soddisfatto
+void find_places(int world_rank, int world_size,int num_it); //Utilizzata per iterare gli elementi all'interno della matrice, controllando se ogni elemento è soddisfatto
 ```
 
 
@@ -113,7 +114,7 @@ for(int i=0;i<world_size;i++)
 ```
 
 Gli array **displs** e **send_counts** servono per utilizzare la funzione **MPI_Scatterv** che permette di assegnare in modo dinamico gli elementi ai vari processi, in questo caso le varie porzioni della matrice:
-```c:
+```c
 MPI_Scatterv(array_completo, send_counts, displs, MPI_INT,&sarray.array_op[0][0], send_counts[world_rank], MPI_INT, 0, MPI_COMM_WORLD);
 ```
 Successivamente viene utilizzata la funzione **def_array_border** che permette ad ogni processo di avere le righe confinanti della propria porzione di matrice, in modo da poter calcolare se un elemento è soddisfatto o meno:
@@ -183,11 +184,11 @@ Con la funzione **swap** avviene lo spostamento dell'elemento non soddisfatto, q
 2. Viene selezionata una casella appartenente alla porzione della matrice di un altro processo
 
 ```c
-void swap(int i,int j,int world_rank,int rows)
+void swap(int i,int j,int world_rank,int rows,int num_it)
 {
     stop=1;
-    srand(time(NULL) + world_rank+i+j + world_rank*i*j);
-    int r=rand()%numb_white_spaces;
+    srand(time(NULL) + num_it + i + j);
+    int r=(rand()+num_it*i+j)%numb_white_spaces;
     int check=0;
    
     int coord_empty_x=sarray.array_empty_coord[r].x;
@@ -201,20 +202,19 @@ void swap(int i,int j,int world_rank,int rows)
         {
             check=1;
             local_i=i;
+            
         }
             
     }
-   
+  
     if(check==1)
     {
-        {
             sarray.array_empty_coord[r].x=i+sarray.initial_row;
             sarray.array_empty_coord[r].y=j;
             sarray.array_local_empty_coord[local_i].x=i+sarray.initial_row;
             sarray.array_local_empty_coord[local_i].y=j;
             sarray.array_op[coord_empty_x-sarray.initial_row][coord_empty_y]=sarray.array_op[i][j];
-            sarray.array_op[i][j]=32;
-        }     
+            sarray.array_op[i][j]=32;    
     }
     else
     {
@@ -241,12 +241,12 @@ void swap(int i,int j,int world_rank,int rows)
     }
 }
 ```
-Nel caso in cui viene scelta una casella appartenente ad un altro processo, viene instanziata una variabile di tipo Element dove vengono salvate tutte le informazioni riguardanti l'elemento da spostare e viene aggiunto all'array **elements**. Alla fine di ogni iterata della porzione della matrice, viene chiamata la funzione **MPI_Allgather** per raccogliere nella variabile **size_all_elements** la dimensione dell'array **elements** di ogni processo:
+Nel caso in cui viene scelta una casella appartenente ad un altro processo, viene istanziata una variabile di tipo Element dove vengono salvate tutte le informazioni riguardanti l'elemento da spostare e viene aggiunto all'array **elements**. Alla fine di ogni iterata della porzione della matrice, viene chiamata la funzione **MPI_Allgather** per raccogliere nella variabile **size_all_elements** la dimensione dell'array **elements** di ogni processo:
 ```c
 MPI_Allgather(&size_elements, 1, MPI_INT, size_all_elements_array, 1, MPI_INT,MPI_COMM_WORLD);
 ```
 
-In questo modo è possibile ottenere la grandezza totale di tutti gli elementi che sono soggetti ad un possibile cambiamento di posizione, viene instanziato l'array di Element **all_elements**  e tramite la funzione **MPI_Allgatherv** vengono raccolti tutti gli elementi dei vari processi che verranno salvati nell'array **all_ellements**:
+In questo modo è possibile ottenere la grandezza totale di tutti gli elementi che sono soggetti ad un possibile cambiamento di posizione, viene istanziato l'array di Element **all_elements**  e tramite la funzione **MPI_Allgatherv** vengono raccolti tutti gli elementi dei vari processi che verranno salvati nell'array **all_ellements**:
 
 ```c
 int size_all_elements_array[world_size];
@@ -264,7 +264,7 @@ for(int i=0;i<world_size;i++)
 }
 
 
-Element all_elements[size_all_elements];
+Element *all_elements=malloc(sizeof(Element)*size_all_elements);
 
 MPI_Allgatherv(elements, size_elements, elementswap, all_elements, counts_swap, displacements_swap, elementswap, MPI_COMM_WORLD);
 
@@ -312,7 +312,7 @@ for(int i=0;i<world_size;i++)
     displacements_swap_changed[i] = (i==0) ? 0 : displacements_swap_changed[i-1]+size_all_elements_changed_array[i-1];
 }
 
-Element all_elements_changed[size_all_elements_changed];
+Element* all_elements_changed=malloc(sizeof(Element)*size_all_elements_changed);
 
 if(size_all_elements_changed>0)
     MPI_Allgatherv(elements_changed, size_elements_changed, elementswap, all_elements_changed, counts_swap_changed, displacements_swap_changed, elementswap, MPI_COMM_WORLD);
@@ -367,12 +367,76 @@ MPI_Gatherv(&sarray.array_op[0][0],send_rows[world_rank],MPI_INT,&array_completo
 ```
 
 ## Correttezza
-La correttezza dell'algoritmo può essere provata andando ad avere la stessa soluzione su una matrice costante andando ad utilizzare un numero variabile di processi.
-La matrice costante utilizzata è la seguente:
+La correttezza dell'algoritmo può essere provata utilizzando una matrice costante ed andando a controllare che l'algoritmo applicato alla matrice da un numero variabile di processi restituisca il medesimo risultato:
 
 ![Matrice costante](https://github.com/girolamo-giordano/PCPC-2021/blob/main/images/matrixshelling.png)
 
+Le matrici risultanti sono le seguenti:
+| Numero processi: 1   | Numero processi: 2     | Numero processi: 3     |
+| :------------- | :----------: | -----------: |
+| Prima iterata |  Prima iterata    |  Prima iterata    |
+| ![m1_1](https://github.com/girolamo-giordano/PCPC-2021/blob/main/images/primait.png) |      ![m1_2](https://github.com/girolamo-giordano/PCPC-2021/blob/main/images/primaitsp.png)         |     ![m1_3](https://github.com/girolamo-giordano/PCPC-2021/blob/main/images/primaittp.png)          |
+| Seconda iterata  | Seconda iterata  | Seconda iterata  |
+| ![m2_1](https://github.com/girolamo-giordano/PCPC-2021/blob/main/images/secondait.png)|    ![m2_2](https://github.com/girolamo-giordano/PCPC-2021/blob/main/images/secondaitsp.png)   | ![m2_3](https://github.com/girolamo-giordano/PCPC-2021/blob/main/images/secondaittp.png)  |
+
+## Benchmarking
+Il Benchmarking del progetto è stato effettuato su un cluster formato da 4 macchine **m4.large** istanziate su AWS, così da avere 8 vCPUs disponibili. I benchmark sono stati effettuati per valutare la strong scalability e la weak scalability, i test sono i seguenti:
+
+Nel caso della strong scalability i test effettuati sono stati su:
+- Matrice 500x500 con numero di processori:1,2,3,4,5,6,7,8 e con otto iterazioni ciascuno
+- Matrice 750x750 con numero di processori:1,2,3,4,5,6,7,8 e con otto iterazioni ciascuno
+- Matrice 1000x1000 con numero di processori:1,2,3,4,5,6,7,8 e con otto iterazioni ciascuno
+
+La formula utilizzata per calcolare l'efficienza della strong scalability è la seguente: **t1 / ( N * tN ) * 100%**, con **t1** che indica il tempo impiegato da 1 processo per effettuare il lavoro, **N** indica il numero di processi e **tN** il tempo impiegato da N processi per effettuare il lavoro.
+
+### Scalabilità forte su matrice 500x500
+| vCPUs | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 
+| ----- | ----- | ----- | ----- | ----- | ----- | ----- | ----- | ----- |
+| **Tempo** | 11,04 | 9,41 | 6,73 | 5,52 | 4,52 | 3,98 | 3,56 | 3,44 | 
+| **Efficienza** | 100,00% | 58,66% | 54,68% | 50% | 48,85% | 46,23% | 44,30% | 40,11% | 
+
+| ![t1](https://github.com/girolamo-giordano/PCPC-2021/blob/main/images/img1.PNG)  | ![e1](https://github.com/girolamo-giordano/PCPC-2021/blob/main/images/img5.PNG) |
+|---|---|
+
+### Scalabilità forte su matrice 750x750
+| vCPUs | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 
+| ----- | ----- | ----- | ----- | ----- | ----- | ----- | ----- | ----- |
+| **Tempo** | 54,24 | 46,57 | 33,74 | 27,07 | 22,17 | 19,2 | 17,46 | 16,13 | 
+| **Efficienza** | 100,00% | 58,23% | 53,58% | 50,09% | 48,93% | 47,08% | 44,37% | 42,03% | 
+
+| ![t2](https://github.com/girolamo-giordano/PCPC-2021/blob/main/images/img2.PNG)  | ![e2](https://github.com/girolamo-giordano/PCPC-2021/blob/main/images/img6.PNG) |
+|---|---|
+
+### Scalabilità forte su matrice 1000x1000
+| vCPUs | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 
+| ----- | ----- | ----- | ----- | ----- | ----- | ----- | ----- | ----- |
+| **Tempo** | 168,46 | 148,46 | 105,18 | 84,84 | 70,22 | 61,02 | 54,04 | 49,35 | 
+| **Efficienza** | 100,00% | 56,73% | 53,38% | 49,64% | 47,98% | 46,01% | 44,53% | 42,67% | 
+
+| ![t3](https://github.com/girolamo-giordano/PCPC-2021/blob/main/images/img3.PNG)  | ![e3](https://github.com/girolamo-giordano/PCPC-2021/blob/main/images/img7.PNG) |
+|---|---|
+
+### Scalabilità debole
+Nel caso della scalabilità debole i test sono stati effettuati iniziando da una matrice composta da 100 righe assegnata ad 1 processo, ed andando poi ad aggiungere 100 righe per ogni processo in più, fino ad arrivare ad una matrice composta da 800 righe assegnata a 8 processi.
+
+La formula utilizzata per calcolare l'efficienza della weak scalability è la seguente: **( t1 / tN ) * 100%**, con **t1** che indica il tempo impiegato da 1 processo per effettuare il lavoro e **tN** il tempo impiegato da N processi per effettuare il lavoro.
 
 
+| vCPUs | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 
+| ----- | ----- | ----- | ----- | ----- | ----- | ----- | ----- | ----- |
+| **Tempo** | 0,03 | 0,28 | 0,97 | 2,38 | 4,6 | 8,21 | 13,63 | 20,47 | 
+| **Efficienza** | 100,00% | 10,71% | 3,09% | 1,26% | 0,65% | 0,36% | 0,22% | 0,15% | 
 
 
+| ![t4](https://github.com/girolamo-giordano/PCPC-2021/blob/main/images/img4.PNG)  | ![e4](https://github.com/girolamo-giordano/PCPC-2021/blob/main/images/img8.PNG) |
+|---|---|
+
+## Esecuzione
+Per poter avviare l'esecuzione c'è bisogno di effettuare prima la compilazione del file **Shellings_model.c**:
+```
+mpicc Shellings_model.c -o Shellings_model.out
+```
+Per poi eseguire il compilato:
+```
+mpirun -np X --mca btl_vader_single_copy_mechanism none --allow-run-as-root Shellings_model.out
+```
