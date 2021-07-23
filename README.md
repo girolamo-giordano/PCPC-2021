@@ -441,5 +441,5 @@ Per poi eseguire il compilato:
 mpirun -np X --mca btl_vader_single_copy_mechanism none --allow-run-as-root Shellings_model.out
 ```
 
-##Conclusioni
+## Conclusioni
 L'implementazione realizzata permette di avere una simulazione del modello di Shelling utilizzando e sfruttando le funzionalità della programmazione parallela. Tramite l'utilizzo di diversi processi si abbassano i tempi di esecuzione per il calcolo degli agenti soddisfatti e insoddisfatti, a discapito però, di un decadimento delle prestazioni all'aumentare dei processi, dovuto all'aumento del numero di comunicazioni per aver scelto di implementare il modello senza ricorrere alla semplificazione.
